@@ -3,7 +3,7 @@
 //   • app boot, root check result
 //   • hardware initialisation
 //   • service restart status
-// Displayed exclusively in LogsScreen.
+// System log store — persists across app lifetime.
 // LedMenu console never reads this.
 import 'package:flutter/foundation.dart';
 

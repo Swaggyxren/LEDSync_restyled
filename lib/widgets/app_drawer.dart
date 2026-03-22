@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:ui';
-import 'package:ledsync/main.dart' show kPrimary, kTextDim, kTextMuted;
+
 import 'package:ledsync/screens/battery_config_screen.dart';
 import 'package:ledsync/screens/notification_config_screen.dart';
 
@@ -10,9 +9,9 @@ class AppDrawerPopup {
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
-      barrierLabel: "Close",
-      barrierColor: Colors.black.withValues(alpha: 0.75),
-      transitionDuration: const Duration(milliseconds: 280),
+      barrierLabel: 'Close',
+      barrierColor: Colors.black.withValues(alpha: 0.6),
+      transitionDuration: const Duration(milliseconds: 250),
       transitionBuilder: (_, anim, _, child) => FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
         child: ScaleTransition(
@@ -21,100 +20,87 @@ class AppDrawerPopup {
           child: child,
         ),
       ),
-      pageBuilder: (ctx, _, _) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: _DrawerContent(),
-      ),
+      pageBuilder: (ctx, _, _) => const _DrawerContent(),
     );
   }
 }
 
 class _DrawerContent extends StatelessWidget {
+  const _DrawerContent();
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Material(
       color: Colors.transparent,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A2942).withValues(alpha: 0.75),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 1.5),
-                ),
-                child: Stack(children: [
-                  // Top glow
-                  Positioned(top: -40, right: -40,
-                    child: Container(width: 120, height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: kPrimary.withValues(alpha: 0.15),
-                        boxShadow: [BoxShadow(color: kPrimary.withValues(alpha: 0.15), blurRadius: 60)],
-                      ))),
-
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Row(children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            color: kPrimary.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(Icons.tune, color: kPrimary, size: 18),
-                        ),
-                        const SizedBox(width: 12),
-                        Text("LED Configuration",
-                            style: GoogleFonts.spaceGrotesk(
-                                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                      ]),
-                      const SizedBox(height: 20),
-
-                      _tile(context,
-                        icon: Icons.notifications_active,
-                        iconColor: const Color(0xFF60A5FA),
-                        iconBg: const Color(0xFF3B82F6),
-                        title: "App Alerts",
-                        sub: "Per-app notification LED patterns",
-                        screen: const NotificationConfigScreen(),
-                      ),
-                      const SizedBox(height: 10),
-                      _tile(context,
-                        icon: Icons.battery_charging_full,
-                        iconColor: kPrimary,
-                        iconBg: kPrimary,
-                        title: "Battery Config",
-                        sub: "Low / critical thresholds & effects",
-                        screen: const BatteryConfigScreen(),
-                      ),
-
-                      const SizedBox(height: 20),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(50),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                          ),
-                          child: Text("Close",
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.spaceGrotesk(
-                                  color: kTextMuted, fontWeight: FontWeight.w600, fontSize: 14)),
-                        ),
-                      ),
-                    ]),
+          child: Card(
+            color: cs.surfaceContainerHigh,
+            elevation: 6,
+            shadowColor: Colors.black.withValues(alpha: 0.4),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // Title row
+                Row(children: [
+                  Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.tune_rounded, color: cs.onPrimaryContainer, size: 18),
                   ),
+                  const SizedBox(width: 12),
+                  Text('LED Configuration',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: cs.onSurface, fontWeight: FontWeight.bold, fontSize: 18)),
                 ]),
-              ),
+                const SizedBox(height: 20),
+
+                // App Alerts tile
+                _tile(
+                  context,
+                  icon: Icons.notifications_active_rounded,
+                  iconColor: cs.onSecondaryContainer,
+                  iconBg: cs.secondaryContainer,
+                  title: 'App Alerts',
+                  sub: 'Per-app notification LED patterns',
+                  screen: const NotificationConfigScreen(),
+                ),
+                const SizedBox(height: 8),
+
+                // Battery Config tile
+                _tile(
+                  context,
+                  icon: Icons.battery_charging_full_rounded,
+                  iconColor: cs.onPrimaryContainer,
+                  iconBg: cs.primaryContainer,
+                  title: 'Battery Config',
+                  sub: 'Low / critical thresholds & effects',
+                  screen: const BatteryConfigScreen(),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Close button
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    onPressed: () => Navigator.pop(context),
+                    style: FilledButton.styleFrom(
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: Text('Close',
+                        style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ]),
             ),
           ),
         ),
@@ -122,46 +108,47 @@ class _DrawerContent extends StatelessWidget {
     );
   }
 
-  Widget _tile(BuildContext context, {
-    required IconData icon, required Color iconColor, required Color iconBg,
-    required String title, required String sub, required Widget screen,
+  Widget _tile(
+    BuildContext context, {
+    required IconData icon,
+    required Color iconColor,
+    required Color iconBg,
+    required String title,
+    required String sub,
+    required Widget screen,
   }) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.pop(context);
-        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
-      },
-      child: ClipRRect(
+    final cs = Theme.of(context).colorScheme;
+
+    return Card(
+      color: cs.surfaceContainerHighest,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+        },
         borderRadius: BorderRadius.circular(18),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F1D2F).withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: iconColor, size: 22),
             ),
-            child: Row(children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: iconBg.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(title,
                     style: GoogleFonts.spaceGrotesk(
-                        color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                      color: cs.onSurface, fontWeight: FontWeight.w700, fontSize: 14)),
                 const SizedBox(height: 2),
-                Text(sub, style: TextStyle(color: kTextDim, fontSize: 12)),
-              ])),
-              Icon(Icons.chevron_right_rounded, color: kTextDim, size: 22),
-            ]),
-          ),
+                Text(sub, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              ]),
+            ),
+            Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant, size: 22),
+          ]),
         ),
       ),
     );

@@ -3,7 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:ledsync/main.dart' show kPrimary, kTextDim;
+import 'package:ledsync/main.dart' show kPrimary;
 
 class NotifPermission {
   static const _ch = MethodChannel('ledsync/notif_listener');
@@ -210,13 +210,13 @@ class _WaitingDialog extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         "Enable it in your system settings, then come back.",
-                        style: TextStyle(color: kTextDim, fontSize: 13, height: 1.5),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13, height: 1.5),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
                       Text("SYSTEM SYNCING",
                           style: TextStyle(
-                              color: kTextDim, fontSize: 9, letterSpacing: 2,
+                              color: Theme.of(context).colorScheme.outline, fontSize: 9, letterSpacing: 2,
                               fontWeight: FontWeight.w600)),
                     ]),
                   ),

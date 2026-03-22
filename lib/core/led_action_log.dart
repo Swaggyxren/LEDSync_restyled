@@ -3,7 +3,7 @@
 //   • effect changes  (Breathing, Strobe, Rainbow …)
 //   • emergency kill / restart
 // Displayed exclusively in the LedMenu system console.
-// LogsScreen never reads this.
+// LED action log — consumed by LedMenu console.
 import 'package:flutter/foundation.dart';
 
 enum LedActionLevel { info, success, warning, error }

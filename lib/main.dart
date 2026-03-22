@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,61 +7,69 @@ import 'package:ledsync/core/notif_permission.dart';
 import 'package:ledsync/core/root_logic.dart';
 import 'package:ledsync/screens/home_screen.dart';
 import 'package:ledsync/screens/led_menu.dart';
-import 'package:ledsync/screens/logs_screen.dart';
 import 'package:ledsync/screens/tweaks_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: Color(0xFF0A1628),
-    systemNavigationBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarContrastEnforced: false,
   ));
   runApp(const LedApp());
 }
 
 // ─── Design Tokens ────────────────────────────────────────────────────────
-// Glass UI: use ClipRRect → BackdropFilter(ImageFilter.blur) → Container(decoration: glassDecoration())
-// so the background is blurred and the panel gets a consistent tint. Use ClampingScrollPhysics
-// on scrollable screens so overscroll does not reveal unblurred gradient.
-const kPrimary     = Color(0xFF9e5aed);
-const kNavyStart   = Color(0xFF0A1628);
-const kNavyEnd     = Color(0xFF1A2942);
-const kTextMuted   = Color(0xFFB8C5D6);
-const kTextDim     = Color(0xFF8899AA);
-const kGlassBg     = Color(0x0DFFFFFF);
-const kGlassBorder = Color(0x1AFFFFFF);
+// In widgets, prefer Theme.of(context).colorScheme over these const values.
+const kSeedColor  = Color(0xFF9E5AED);
+const kPrimary    = kSeedColor; // kept for legacy imports
 
+// Kept at 0 — Scaffold.bottomNavigationBar now handles the clearance.
+const kNavBarClearance = 0.0;
+
+// Card image constants (home screen hero card)
 const kCardImageAsset     = 'assets/Card.png';
 const kCardImageOpacity   = 1.0;
 const kCardImageAlignment = Alignment.centerRight;
 
-const kNavBarClearance = 100.0;
-
-/// Semi-transparent fill + border for glass panels. Use with ClipRRect and BackdropFilter
-/// so content behind the panel is blurred; this adds the tint on top.
-BoxDecoration glassDecoration({double radius = 25, Color? borderColor}) =>
-    BoxDecoration(
-      color: kGlassBg,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: borderColor ?? kGlassBorder, width: 1),
-    );
+// Terminal / console accent colours
+const kConsoleBlue   = Color(0xFF93C5FD);
+const kConsoleBorder = Color(0xFF3B82F6);
+const kConsoleBg     = Color(0xFF090D18);
 
 // ─── App ─────────────────────────────────────────────────────────────────
 class LedApp extends StatelessWidget {
   const LedApp({super.key});
+
   @override
   Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true, brightness: Brightness.dark,
-      scaffoldBackgroundColor: kNavyStart,
-      colorScheme: const ColorScheme.dark(primary: kPrimary, surface: kNavyEnd),
-      textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
-    ),
-    home: const MainShell(),
-  );
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: kSeedColor,
+            brightness: Brightness.dark,
+          ),
+          textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
+          cardTheme: const CardThemeData(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(20)),
+            ),
+          ),
+          navigationBarTheme: const NavigationBarThemeData(
+            indicatorShape: StadiumBorder(),
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          ),
+          snackBarTheme: SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        home: const MainShell(),
+      );
 }
 
 // ─── Main Shell ───────────────────────────────────────────────────────────
@@ -84,7 +90,6 @@ class _MainShellState extends State<MainShell>
   static const _tabs = [
     (Icons.home_rounded,      Icons.home_outlined,     'Home'),
     (Icons.lightbulb_rounded, Icons.lightbulb_outline, 'LEDs'),
-    (Icons.terminal_rounded,  Icons.terminal,          'Logs'),
     (Icons.tune_rounded,      Icons.tune,              'Tweaks'),
   ];
 
@@ -100,7 +105,7 @@ class _MainShellState extends State<MainShell>
 
     _slideCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 340),
+      duration: const Duration(milliseconds: 300),
     );
     _slideCurve = CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOutCubic);
     _slideCtrl.value = 1.0;
@@ -122,7 +127,7 @@ class _MainShellState extends State<MainShell>
     if (i == _navIndex) return;
     setState(() {
       _prevIndex = _navIndex;
-      _navIndex = i;
+      _navIndex  = i;
     });
     _slideCtrl.forward(from: 0);
   }
@@ -130,77 +135,42 @@ class _MainShellState extends State<MainShell>
   static const List<Widget> _pages = [
     HomeScreen(),
     LedMenu(),
-    LogsScreen(),
     TweaksScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          AnimatedBuilder(
-            animation: _slideCurve,
-            builder: (ctx, child) {
-              if (!_slideCtrl.isAnimating) return child!;
+    final cs = Theme.of(context).colorScheme;
 
-              final w = MediaQuery.of(ctx).size.width;
-              final goingRight = _navIndex > _prevIndex;
-              final dx = w * 0.06 * (1.0 - _slideCurve.value) * (goingRight ? 1.0 : -1.0);
-              return Transform.translate(offset: Offset(dx, 0), child: child);
-            },
-            child: IndexedStack(
-              index: _navIndex,
-              children: _pages,
-            ),
-          ),
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 24,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: glassDecoration(radius: 999),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: List.generate(_tabs.length, (i) {
-                      final sel = _navIndex == i;
-                      return GestureDetector(
-                        onTap: () => _onNavTap(i),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                sel ? _tabs[i].$1 : _tabs[i].$2,
-                                color: sel ? kPrimary : kTextMuted,
-                                size: 24,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _tabs[i].$3,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: sel ? FontWeight.bold : FontWeight.w500,
-                                  color: sel ? kPrimary : kTextMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: AnimatedBuilder(
+        animation: _slideCurve,
+        builder: (ctx, child) {
+          if (!_slideCtrl.isAnimating) return child!;
+          final w          = MediaQuery.of(ctx).size.width;
+          final goingRight = _navIndex > _prevIndex;
+          final dx         = w * 0.06 * (1.0 - _slideCurve.value) * (goingRight ? 1.0 : -1.0);
+          return Transform.translate(offset: Offset(dx, 0), child: child);
+        },
+        child: IndexedStack(
+          index: _navIndex,
+          children: _pages,
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _navIndex,
+        onDestinationSelected: _onNavTap,
+        backgroundColor: cs.surfaceContainer,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        destinations: _tabs
+            .map((t) => NavigationDestination(
+                  icon: Icon(t.$2),
+                  selectedIcon: Icon(t.$1),
+                  label: t.$3,
+                ))
+            .toList(),
       ),
     );
   }

@@ -24,6 +24,10 @@ class NotificationLedService : NotificationListenerService() {
     @Volatile
     private var lastTriggerTimeMillis: Long = 0L
 
+    // Tracks packages whose looping LED is currently ON.
+    // Prevents re-triggering while the pattern is already running.
+    private val activeLoopingPkgs = mutableSetOf<String>()
+
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onListenerConnected() {
@@ -85,6 +89,19 @@ class NotificationLedService : NotificationListenerService() {
         }
     }
 
+    // Used for looping patterns — one write is enough since the hardware
+    // keeps the pattern running until explicitly stopped.
+    private fun triggerOnce(pkg: String, hex: String) {
+        Log.d("NotifLED", "Trigger x1 (looping) for: $pkg hex='$hex'")
+        lastTriggerTimeMillis = System.currentTimeMillis()
+        synchronized(activeLoopingPkgs) { activeLoopingPkgs.add(pkg) }
+
+        thread {
+            ensureEngineOn()
+            fireOnce(hex, "FIRE_LOOP[$pkg]")
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         try {
             val pkg = sbn.packageName ?: return
@@ -113,16 +130,74 @@ class NotificationLedService : NotificationListenerService() {
                 return
             }
 
-            val now = System.currentTimeMillis()
-            if (now - lastTriggerTimeMillis < COOLDOWN_MS) {
-                Log.d("NotifLED", "Cooldown: skipping $pkg")
-                return
-            }
+            // Check if this package uses a looping pattern.
+            val loopingPkgs = prefs.getStringSet("flutter.notif_looping_pkgs", emptySet())
+                ?: emptySet()
+            val isLooping = loopingPkgs.contains(pkg)
 
-            triggerTwice(pkg, hex)
+            if (isLooping) {
+                // Looping pattern: only fire if not already running for this package.
+                // This ensures the LED triggers exactly once per notification session —
+                // it keeps running until the notification is cleared, no re-fires.
+                val alreadyActive = synchronized(activeLoopingPkgs) { activeLoopingPkgs.contains(pkg) }
+                if (alreadyActive) {
+                    Log.d("NotifLED", "Looping already active for $pkg, skip re-trigger")
+                    return
+                }
+                triggerOnce(pkg, hex)
+            } else {
+                // One-shot pattern: use the existing cooldown + double-fire logic.
+                val now = System.currentTimeMillis()
+                if (now - lastTriggerTimeMillis < COOLDOWN_MS) {
+                    Log.d("NotifLED", "Cooldown: skipping $pkg")
+                    return
+                }
+                triggerTwice(pkg, hex)
+            }
 
         } catch (e: Throwable) {
             Log.e("NotifLED", "onNotificationPosted crashed", e)
+        }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        try {
+            val pkg = sbn.packageName ?: return
+
+            val prefs = applicationContext.getSharedPreferences(
+                "FlutterSharedPreferences",
+                Context.MODE_PRIVATE
+            )
+
+            // Only act if this package is assigned a looping pattern.
+            // Non-looping patterns (Halo, Lightning, Pureness, etc.) self-terminate
+            // after their animation cycle — no cleanup needed.
+            val loopingPkgs = prefs.getStringSet("flutter.notif_looping_pkgs", emptySet())
+                ?: emptySet()
+            if (!loopingPkgs.contains(pkg)) {
+                Log.d("NotifLED", "onRemoved: $pkg not looping, skip")
+                return
+            }
+
+            // If the same app still has other active notifications, keep the LED running.
+            val stillActive = activeNotifications?.any { it.packageName == pkg } ?: false
+            if (stillActive) {
+                Log.d("NotifLED", "onRemoved: $pkg still has active notifs, keep LED")
+                return
+            }
+
+            // Last notification from this package is gone — stop the looping LED.
+            val turnOffHex = prefs.getString("flutter.notif_turnoff_hex", "00 01 00 00 00 00")
+                ?: "00 01 00 00 00 00"
+
+            Log.d("NotifLED", "onRemoved: stopping looping LED for $pkg hex='$turnOffHex'")
+            synchronized(activeLoopingPkgs) { activeLoopingPkgs.remove(pkg) }
+            thread {
+                fireOnce(turnOffHex, "STOP_LOOP[$pkg]")
+            }
+
+        } catch (e: Throwable) {
+            Log.e("NotifLED", "onNotificationRemoved crashed", e)
         }
     }
 }

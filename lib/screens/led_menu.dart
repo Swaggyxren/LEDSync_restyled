@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
-import 'package:ledsync/main.dart' show kPrimary, kGlassBg, kNavyStart, kNavBarClearance;
+import 'package:ledsync/main.dart' show kConsoleBg, kConsoleBorder, kConsoleBlue;
 import 'package:ledsync/core/led_action_log.dart';
 import 'package:ledsync/core/system_log.dart';
 import 'package:ledsync/core/root_logic.dart';
 import 'package:ledsync/models/devices/device_config.dart';
-
-const _kConsoleBlue   = Color(0xFF93C5FD);
-const _kConsoleBorder = Color(0xFF3B82F6);
-const _kConsoleBg     = Color(0xFF0F1D2F);
 
 class LedMenu extends StatefulWidget {
   const LedMenu({super.key});
@@ -18,8 +13,8 @@ class LedMenu extends StatefulWidget {
 
 class _LedMenuState extends State<LedMenu> {
   final ScrollController _logScroll = ScrollController();
+
   // ALL state that must survive remounts is static.
-  // _initDone prevents re-running init; isReady + config hold the result.
   static bool          _initDone = false;
   static bool          _isReady  = false;
   static DeviceConfig? _config;
@@ -56,8 +51,11 @@ class _LedMenuState extends State<LedMenu> {
       setState(() {});
       Future.delayed(const Duration(milliseconds: 60), () {
         if (_logScroll.hasClients) {
-          _logScroll.animateTo(_logScroll.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+          _logScroll.animateTo(
+            _logScroll.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
         }
       });
     });
@@ -65,7 +63,7 @@ class _LedMenuState extends State<LedMenu> {
 
   String _ts() {
     final n = DateTime.now();
-    return '${n.hour.toString().padLeft(2,'0')}:${n.minute.toString().padLeft(2,'0')}:${n.second.toString().padLeft(2,'0')}';
+    return '${n.hour.toString().padLeft(2, '0')}:${n.minute.toString().padLeft(2, '0')}:${n.second.toString().padLeft(2, '0')}';
   }
 
   void _ledLog(String msg, {LedActionLevel level = LedActionLevel.info}) =>
@@ -96,55 +94,58 @@ class _LedMenuState extends State<LedMenu> {
 
   @override
   Widget build(BuildContext context) {
-    final topPad      = MediaQuery.of(context).padding.top;
-    const killH       = 56.0;
-    const bottomClear = kNavBarClearance + killH + 24.0 + 16.0;
-    final logs        = LedActionLog.instance.entries;
+    final cs     = Theme.of(context).colorScheme;
+    final topPad = MediaQuery.of(context).padding.top;
+    final logs   = LedActionLog.instance.entries;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          colors: [kNavyStart, Color(0xFF1A2942)],
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: Column(children: [
+        // ── Top bar ──────────────────────────────────────────────────────
+        Container(
+          color: cs.surface,
+          padding: EdgeInsets.only(top: topPad + 4, bottom: 4, left: 8, right: 8),
+          child: Row(children: [
+            const SizedBox(width: 8),
+            Text('LED Hardware Lab',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: cs.onSurface, fontWeight: FontWeight.bold)),
+          ]),
         ),
-      ),
-      child: Stack(children: [
-        Positioned(top: -80, right: -80,
-          child: Container(width: 240, height: 240,
-            decoration: const BoxDecoration(shape: BoxShape.circle,
-              color: Color(0x26915AED),
-              boxShadow: [BoxShadow(color: Color(0x26915AED), blurRadius: 80, spreadRadius: 40)]))),
 
-        Positioned.fill(child: Stack(children: [
-          SingleChildScrollView(
+        // ── Scrollable content ───────────────────────────────────────────
+        Expanded(
+          child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(20, topPad + 56, 20, bottomClear),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _ledConsole(logs),
+              _ledConsole(cs, logs),
               const SizedBox(height: 24),
-              _sectionLabel('EFFECT GRID'),
+              _sectionLabel(cs, 'EFFECT GRID'),
               const SizedBox(height: 12),
-              _effectGrid(),
+              _effectGrid(cs),
             ]),
           ),
-          Positioned(top: 0, left: 0, right: 0,
-            height: topPad + 160,
-            child: const IgnorePointer(child: _HeaderFade())),
-          Positioned(top: 0, left: 0, right: 0,
-            child: Padding(
-              padding: EdgeInsets.only(left: 20, right: 20, top: topPad + 8, bottom: 10),
-              child: Center(child: Text('LED Hardware Lab',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.bold, fontSize: 17, fontFamily: 'SpaceGrotesk'))),
-            )),
-        ])),
+        ),
 
-        Positioned(
-          left: 20, right: 20, bottom: kNavBarClearance,
-          child: GestureDetector(
-            onTap: () async {
+        // ── Emergency kill button ────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.error,
+              foregroundColor: cs.onError,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            icon: const Icon(Icons.emergency_rounded, size: 20),
+            label: const Text(
+              'EMERGENCY KILL / RESTART',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
+            ),
+            onPressed: () async {
               _ledLog('[${_ts()}] Emergency Stop — killing LED service…', level: LedActionLevel.warning);
-              _sysLog('[${_ts()}] Emergency Stop triggered by user.', level: SystemLogLevel.warning);
+              _sysLog('[${_ts()}] Emergency Stop triggered by user.',      level: SystemLogLevel.warning);
               setState(() { _isReady = false; _activeEffect = null; });
               await RootLogic.emergencyKillAndRevive();
               if (!mounted) return;
@@ -152,101 +153,119 @@ class _LedMenuState extends State<LedMenu> {
               _sysLog('[${_ts()}] Hardware service restarted. Re-initializing…');
               _initLab(force: true);
             },
-            child: Container(
-              height: killH,
-              decoration: BoxDecoration(
-                color: Colors.red[700],
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: 0.35), blurRadius: 20)],
-              ),
-              child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.emergency, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Text('EMERGENCY KILL / RESTART',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold,
-                        fontSize: 15, fontFamily: 'SpaceGrotesk')),
-              ]),
-            ),
           ),
         ),
       ]),
     );
   }
 
-  Widget _ledConsole(List<LedActionEntry> logs) {
+  // ── LED console terminal ──────────────────────────────────────────────
+  Widget _ledConsole(ColorScheme cs, List<LedActionEntry> logs) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        _sectionLabel('LED CONSOLE'),
+        _sectionLabel(cs, 'LED CONSOLE'),
         Text('BAUD: 115200',
-            style: TextStyle(color: kPrimary.withValues(alpha: 0.8),
-                fontSize: 10, fontFamily: 'monospace')),
+            style: TextStyle(color: cs.primary, fontSize: 10, fontFamily: 'monospace')),
       ]),
       const SizedBox(height: 10),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            height: 160,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: _kConsoleBg.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _kConsoleBorder.withValues(alpha: 0.12)),
-            ),
-            child: logs.isEmpty
-                ? Center(child: Text('No LED activity yet.\nPress an effect below.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: _kConsoleBlue.withValues(alpha: 0.4),
-                        fontSize: 11, fontFamily: 'monospace')))
-                : ListView.builder(
-                    controller: _logScroll,
-                    itemCount: logs.length + 1,
-                    itemBuilder: (_, i) {
-                      if (i < logs.length) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: Text(logs[i].message,
-                              style: TextStyle(color: _actionColor(logs[i].level),
-                                  fontSize: 11, fontFamily: 'monospace')),
-                        );
-                      }
-                      return Row(children: [
-                        Text('> ', style: TextStyle(color: _kConsoleBorder,
-                            fontSize: 11, fontFamily: 'monospace')),
-                        const _BlinkingCursor(),
-                      ]);
-                    },
-                  ),
-          ),
+      Container(
+        height: 164,
+        decoration: BoxDecoration(
+          color: kConsoleBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: kConsoleBorder.withValues(alpha: 0.25)),
         ),
+        child: Column(children: [
+          // Terminal title bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              border: Border(
+                bottom: BorderSide(color: kConsoleBorder.withValues(alpha: 0.15)),
+              ),
+            ),
+            child: Row(children: [
+              _consoleDot(Colors.red.shade400),
+              const SizedBox(width: 5),
+              _consoleDot(Colors.amber.shade400),
+              const SizedBox(width: 5),
+              _consoleDot(Colors.green.shade400),
+              const SizedBox(width: 10),
+              Text('led-console', style: TextStyle(
+                  color: cs.outline, fontSize: 10, fontFamily: 'monospace')),
+            ]),
+          ),
+          // Log entries
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: logs.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No LED activity yet.\nPress an effect below.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: kConsoleBlue.withValues(alpha: 0.35),
+                          fontSize: 11, fontFamily: 'monospace',
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: _logScroll,
+                      itemCount: logs.length + 1,
+                      itemBuilder: (_, i) {
+                        if (i < logs.length) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Text(logs[i].message,
+                                style: TextStyle(
+                                  color: _actionColor(logs[i].level),
+                                  fontSize: 11, fontFamily: 'monospace')),
+                          );
+                        }
+                        return Row(children: [
+                          Text('> ', style: TextStyle(
+                              color: kConsoleBorder, fontSize: 11, fontFamily: 'monospace')),
+                          const _BlinkingCursor(),
+                        ]);
+                      },
+                    ),
+            ),
+          ),
+        ]),
       ),
     ]);
   }
 
   Color _actionColor(LedActionLevel l) {
     switch (l) {
-      case LedActionLevel.success: return const Color(0xFF22C55E);
-      case LedActionLevel.warning: return const Color(0xFFF59E0B);
-      case LedActionLevel.error:   return const Color(0xFFEF4444);
-      case LedActionLevel.info:    return _kConsoleBlue;
+      case LedActionLevel.success: return const Color(0xFF4ADE80);
+      case LedActionLevel.warning: return const Color(0xFFFBBF24);
+      case LedActionLevel.error:   return const Color(0xFFF87171);
+      case LedActionLevel.info:    return kConsoleBlue;
     }
   }
 
-  Widget _effectGrid() {
+  // ── Effect grid ───────────────────────────────────────────────────────
+  Widget _effectGrid(ColorScheme cs) {
     if (!_isReady || _config == null) {
-      return Wrap(spacing: 10, runSpacing: 10,
-          children: _effects.map((e) => _chip(e.$2, e.$1, false, null)).toList());
+      // Show disabled placeholder chips while not ready
+      return Wrap(
+        spacing: 8, runSpacing: 8,
+        children: _effects.map((e) => _chip(cs, e.$2, e.$1, false, null)).toList(),
+      );
     }
     return Wrap(
-      spacing: 10, runSpacing: 10,
+      spacing: 8, runSpacing: 8,
       children: _config!.ledEffects.entries.map((entry) {
-        final active = _activeEffect == entry.key;
+        final active    = _activeEffect == entry.key;
         final iconEntry = _effects.firstWhere(
           (e) => e.$2.toLowerCase() == entry.key.toLowerCase(),
           orElse: () => (Icons.lightbulb_outline, entry.key),
         );
-        return _chip(entry.key, iconEntry.$1, active, () {
+        return _chip(cs, entry.key, iconEntry.$1, active, () {
           RootLogic.sendRawHex(entry.value);
           _ledLog('[${_ts()}] Effect active: ${entry.key}', level: LedActionLevel.success);
           setState(() => _activeEffect = entry.key);
@@ -255,53 +274,42 @@ class _LedMenuState extends State<LedMenu> {
     );
   }
 
-  Widget _chip(String label, IconData icon, bool active, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: active ? kPrimary : kGlassBg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: active
-              ? kPrimary.withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.08)),
-          boxShadow: active
-              ? [BoxShadow(color: kPrimary.withValues(alpha: 0.25), blurRadius: 12)]
-              : null,
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 18,
-              color: active ? Colors.white : Colors.white.withValues(alpha: 0.6)),
-          const SizedBox(width: 8),
-          Text(label, style: TextStyle(
-              color: active ? Colors.white : Colors.white.withValues(alpha: 0.9),
-              fontSize: 13, fontWeight: FontWeight.w500, fontFamily: 'SpaceGrotesk')),
-        ]),
+  Widget _chip(ColorScheme cs, String label, IconData icon, bool active, VoidCallback? onTap) {
+    return FilterChip(
+      selected: active,
+      showCheckmark: false,
+      avatar: Icon(icon, size: 16,
+          color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant),
+      label: Text(label),
+      onSelected: onTap != null ? (_) => onTap() : null,
+      selectedColor: cs.primaryContainer,
+      backgroundColor: cs.surfaceContainerHigh,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+        color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
       ),
+      side: BorderSide(
+        color: active ? cs.primary : cs.outlineVariant,
+        width: active ? 1.5 : 1,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
     );
   }
 
-  Widget _sectionLabel(String text) => Text(text,
-      style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
-          fontWeight: FontWeight.w600, fontSize: 11, letterSpacing: 1.4));
+  Widget _sectionLabel(ColorScheme cs, String text) => Text(text,
+      style: TextStyle(
+        color: cs.outline,
+        fontWeight: FontWeight.w600,
+        fontSize: 11,
+        letterSpacing: 1.4,
+      ));
+
+  Widget _consoleDot(Color c) =>
+      Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: c));
 }
 
-class _HeaderFade extends StatelessWidget {
-  const _HeaderFade();
-  @override
-  Widget build(BuildContext context) => const DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [kNavyStart, Color(0xF50A1628), Color(0xD10A1628), Color(0x990A1628),
-          Color(0x610A1628), Color(0x2E0A1628), Color(0x0F0A1628), Color(0x000A1628)],
-        stops: [0.0, 0.12, 0.28, 0.50, 0.68, 0.82, 0.92, 1.0],
-      ),
-    ),
-  );
-}
-
+// ─── Blinking terminal cursor ─────────────────────────────────────────────
 class _BlinkingCursor extends StatefulWidget {
   const _BlinkingCursor();
   @override
@@ -311,20 +319,28 @@ class _BlinkingCursor extends StatefulWidget {
 class _BlinkingCursorState extends State<_BlinkingCursor>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
+
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
       ..repeat(reverse: true);
   }
+
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _ctrl,
-    builder: (ctx2, ch2) => Opacity(
-      opacity: _ctrl.value > 0.5 ? 1 : 0,
-      child: Container(width: 7, height: 14, color: _kConsoleBorder.withValues(alpha: 0.6)),
-    ),
-  );
+        animation: _ctrl,
+        builder: (_, _) => Opacity(
+          opacity: _ctrl.value > 0.5 ? 1 : 0,
+          child: Container(
+              width: 7, height: 13,
+              color: kConsoleBorder.withValues(alpha: 0.7)),
+        ),
+      );
 }

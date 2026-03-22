@@ -30,8 +30,13 @@ class BatteryListener {
   static bool _inFull     = false;
   static const int _hysteresis = 2;
 
-  static const Duration _pulseInterval = Duration(milliseconds: 1500);
-  static Timer? _batteryPulseTimer;
+  static const Duration kLowCriticalPulseInterval = Duration(milliseconds: 1500);
+  static const int      kLowCriticalPulseCount    = 5;
+  static const Duration kFullPulseInterval        = Duration(seconds: 3);
+
+  static Timer? _lowCritTimer;
+  static int    _lowCritRemaining = 0;
+  static Timer? _fullTimer;
 
   static bool _started = false;
   static Timer? _pollTimer;
@@ -106,59 +111,68 @@ class BatteryListener {
 
     if (_inCritical && level >= critTh + _hysteresis) {
       _inCritical = false;
-      _batteryPulseTimer?.cancel();
-      _batteryPulseTimer = null;
+      _cancelLowCritTimer();
     }
     if (_inLow      && level >= lowTh  + _hysteresis) {
       _inLow = false;
-      _batteryPulseTimer?.cancel();
-      _batteryPulseTimer = null;
+      _cancelLowCritTimer();
     }
     if (_inFull && (!charging || level <= fullTh - _hysteresis)) {
       _inFull = false;
-      _batteryPulseTimer?.cancel();
-      _batteryPulseTimer = null;
+      _cancelFullTimer();
     }
 
     // Full-charge indication should stop once power is unplugged.
     if (wasInFull && !_inFull && !charging) {
-      _batteryPulseTimer?.cancel();
-      _batteryPulseTimer = null;
+      _cancelFullTimer();
       await RootLogic.turnOffAll();
     }
 
     if (nowCritical && !_inCritical) {
       _inCritical = _inLow = true;
       await _playByName(cfg, critName);
-      _startPulseTimer();
+      _startLowCriticalTrain();
       return;
     }
     if (nowLow && !_inLow) {
       _inLow = true;
       await _playByName(cfg, lowName);
-      _startPulseTimer();
+      _startLowCriticalTrain();
       return;
     }
     if (nowFull && !_inFull) {
       _inFull = true;
       await _playByName(cfg, fullName);
-      _startPulseTimer();
+      _startFullTimer();
     }
   }
 
-  static void _startPulseTimer() {
-    _batteryPulseTimer?.cancel();
-    _batteryPulseTimer = Timer.periodic(_pulseInterval, (_) => _pulseCurrentBatteryEffect());
+  static void _startLowCriticalTrain() {
+    _cancelLowCritTimer();
+    _lowCritRemaining = kLowCriticalPulseCount - 1; // one pulse already fired on entry
+    if (_lowCritRemaining <= 0) return;
+    _lowCritTimer = Timer.periodic(
+      kLowCriticalPulseInterval,
+      (_) => _pulseLowCriticalEffect(),
+    );
   }
 
-  static Future<void> _pulseCurrentBatteryEffect() async {
-    if (!RootLogic.masterEnabled || (!_inCritical && !_inLow && !_inFull)) {
-      _batteryPulseTimer?.cancel();
-      _batteryPulseTimer = null;
+  static Future<void> _pulseLowCriticalEffect() async {
+    if (!RootLogic.masterEnabled || (!_inCritical && !_inLow)) {
+      _cancelLowCritTimer();
       return;
     }
+    if (_lowCritRemaining <= 0) {
+      _cancelLowCritTimer();
+      return;
+    }
+    _lowCritRemaining--;
+
     final cfg = await RootLogic.getConfig();
-    if (cfg == null) return;
+    if (cfg == null) {
+      _cancelLowCritTimer();
+      return;
+    }
     final sp = await _sp;
     final lowName = _resolveEffectName(
       sp.getString(kBattLowEffectNameKey),
@@ -170,13 +184,50 @@ class BatteryListener {
       fallback: kDefaultCriticalEffect,
       cfg: cfg,
     );
+    final String? effectName = _inCritical ? critName : (_inLow ? lowName : null);
+    await _playByName(cfg, effectName);
+
+    if (_lowCritRemaining <= 0) {
+      _cancelLowCritTimer();
+    }
+  }
+
+  static void _startFullTimer() {
+    _cancelFullTimer();
+    _fullTimer = Timer.periodic(
+      kFullPulseInterval,
+      (_) => _pulseFullEffect(),
+    );
+  }
+
+  static Future<void> _pulseFullEffect() async {
+    if (!RootLogic.masterEnabled || !_inFull) {
+      _cancelFullTimer();
+      return;
+    }
+    final cfg = await RootLogic.getConfig();
+    if (cfg == null) {
+      _cancelFullTimer();
+      return;
+    }
+    final sp = await _sp;
     final fullName = _resolveEffectName(
       sp.getString(kBattFullEffectNameKey),
       fallback: kDefaultFullEffect,
       cfg: cfg,
     );
-    final String? effectName = _inCritical ? critName : (_inLow ? lowName : fullName);
-    await _playByName(cfg, effectName);
+    await _playByName(cfg, fullName);
+  }
+
+  static void _cancelLowCritTimer() {
+    _lowCritTimer?.cancel();
+    _lowCritTimer = null;
+    _lowCritRemaining = 0;
+  }
+
+  static void _cancelFullTimer() {
+    _fullTimer?.cancel();
+    _fullTimer = null;
   }
 
   static String? _resolveEffectName(

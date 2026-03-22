@@ -1,9 +1,6 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ledsync/main.dart' show glassDecoration, kNavyEnd, kNavyStart, kNavBarClearance, kPrimary, kTextDim;
 import 'package:ledsync/screens/battery_config_screen.dart';
 import 'package:ledsync/screens/notification_config_screen.dart';
 
@@ -15,7 +12,8 @@ class TweaksScreen extends StatelessWidget {
       pageBuilder: (ctx, a1, a2) => page,
       transitionsBuilder: (_, anim, _, child) => SlideTransition(
         position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-            .chain(CurveTween(curve: Curves.easeOutQuint)).animate(anim),
+            .chain(CurveTween(curve: Curves.easeOutQuint))
+            .animate(anim),
         child: child,
       ),
     ));
@@ -23,89 +21,50 @@ class TweaksScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs     = Theme.of(context).colorScheme;
     final topPad = MediaQuery.of(context).padding.top;
-    return SizedBox.expand(
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [kNavyStart, kNavyEnd],
+
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(16, topPad + 16, 16, 24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Tweaks',
+              style: GoogleFonts.spaceGrotesk(
+                color: cs.onSurface, fontWeight: FontWeight.bold, fontSize: 26)),
+          const SizedBox(height: 24),
+
+          // Section label
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
+            child: Text('LED CONFIGURATION',
+                style: TextStyle(
+                  color: cs.outline,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11, letterSpacing: 1.5)),
           ),
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-          Positioned(
-            top: -60,
-            right: -60,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: kPrimary.withValues(alpha: 0.1),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimary.withValues(alpha: 0.1),
-                    blurRadius: 80,
-                    spreadRadius: 30,
-                  ),
-                ],
-              ),
-            ),
+
+          _tile(
+            context,
+            icon: Icons.notifications_active_outlined,
+            iconColor: cs.onSecondaryContainer,
+            iconBg: cs.secondaryContainer,
+            title: 'App Alerts',
+            sub: 'Per-app notification LED patterns',
+            onTap: () => _slide(context, const NotificationConfigScreen()),
           ),
-          SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(20, topPad + 16, 20, kNavBarClearance + 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  child: Text(
-                    'Tweaks',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 26,
-                    ),
-                  ),
-                ),
-                const Text(
-                  'LED CONFIGURATION',
-                  style: TextStyle(
-                    color: kTextDim,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _tile(
-                  context,
-                  icon: Icons.notifications_active_outlined,
-                  iconColor: const Color(0xFF60A5FA),
-                  iconBg: const Color(0xFF3B82F6),
-                  title: 'App Alerts',
-                  sub: 'Per-app notification LED patterns',
-                  onTap: () => _slide(context, const NotificationConfigScreen()),
-                ),
-                const SizedBox(height: 10),
-                _tile(
-                  context,
-                  icon: Icons.battery_charging_full_outlined,
-                  iconColor: kPrimary,
-                  iconBg: kPrimary,
-                  title: 'Battery Config',
-                  sub: 'Low / critical thresholds & effects',
-                  onTap: () => _slide(context, const BatteryConfigScreen()),
-                ),
-              ],
-            ),
+          const SizedBox(height: 8),
+          _tile(
+            context,
+            icon: Icons.battery_charging_full_outlined,
+            iconColor: cs.onPrimaryContainer,
+            iconBg: cs.primaryContainer,
+            title: 'Battery Config',
+            sub: 'Low / critical thresholds & effects',
+            onTap: () => _slide(context, const BatteryConfigScreen()),
           ),
-          ],
-        ),
+        ]),
       ),
     );
   }
@@ -119,48 +78,33 @@ class TweaksScreen extends StatelessWidget {
     required String sub,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
+    final cs = Theme.of(ctx).colorScheme;
+    return Card(
+      color: cs.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(18),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: glassDecoration(radius: 18),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: iconBg.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 22),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(sub, style: const TextStyle(color: kTextDim, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded, color: kTextDim, size: 22),
-              ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: iconColor, size: 22),
             ),
-          ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: cs.onSurface, fontWeight: FontWeight.w700, fontSize: 14)),
+                const SizedBox(height: 2),
+                Text(sub, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              ]),
+            ),
+            Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant, size: 22),
+          ]),
         ),
       ),
     );
