@@ -1,8 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.xiiann.ledsync">
 
-    <!-- Only keep this if app listing breaks without it -->
-    <!-- <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" /> -->
+    <!-- Notification listener access (system-granted, not runtime) -->
+    <!-- POST_NOTIFICATIONS: runtime permission required on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Keeps the service alive as a foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- dataSync type: required on Android 14+ for background data processing FGS -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Prevents CPU sleep during root/LED writes -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Restart service after reboot or app update -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="LEDSync"
@@ -29,15 +41,26 @@
             </intent-filter>
         </activity>
 
-        <!-- ✅ Notification listener service -->
+        <!-- Notification listener service — runs as foreground to survive OEM battery killers -->
         <service
             android:name=".NotificationLedService"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:foregroundServiceType="dataSync"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Restarts the notification listener after reboot or app update -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>

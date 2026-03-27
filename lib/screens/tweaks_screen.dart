@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ledsync/screens/battery_config_screen.dart';
 import 'package:ledsync/screens/notification_config_screen.dart';
@@ -31,7 +30,7 @@ class TweaksScreen extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(16, topPad + 16, 16, 24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Tweaks',
-              style: GoogleFonts.spaceGrotesk(
+              style: TextStyle(fontFamily: 'SpaceGrotesk', 
                 color: cs.onSurface, fontWeight: FontWeight.bold, fontSize: 26)),
           const SizedBox(height: 24),
 
@@ -97,7 +96,7 @@ class TweaksScreen extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(title,
-                    style: GoogleFonts.spaceGrotesk(
+                    style: TextStyle(fontFamily: 'SpaceGrotesk', 
                       color: cs.onSurface, fontWeight: FontWeight.w700, fontSize: 14)),
                 const SizedBox(height: 2),
                 Text(sub, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),

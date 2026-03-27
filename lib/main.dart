@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ledsync/core/battery_listener.dart';
 import 'package:ledsync/core/notif_permission.dart';
@@ -12,32 +11,27 @@ import 'package:ledsync/screens/tweaks_screen.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: Colors.transparent,
-    systemNavigationBarContrastEnforced: false,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+    ),
+  );
   runApp(const LedApp());
 }
 
 // ─── Design Tokens ────────────────────────────────────────────────────────
-// In widgets, prefer Theme.of(context).colorScheme over these const values.
-const kSeedColor  = Color(0xFF9E5AED);
-const kPrimary    = kSeedColor; // kept for legacy imports
-
-// Kept at 0 — Scaffold.bottomNavigationBar now handles the clearance.
+const kSeedColor = Color(0xFF9E5AED);
+const kPrimary = kSeedColor;
 const kNavBarClearance = 0.0;
-
-// Card image constants (home screen hero card)
-const kCardImageAsset     = 'assets/Card.png';
-const kCardImageOpacity   = 1.0;
+const kCardImageAsset = 'assets/Card.png';
+const kCardImageOpacity = 1.0;
 const kCardImageAlignment = Alignment.centerRight;
-
-// Terminal / console accent colours
-const kConsoleBlue   = Color(0xFF93C5FD);
+const kConsoleBlue = Color(0xFF93C5FD);
 const kConsoleBorder = Color(0xFF3B82F6);
-const kConsoleBg     = Color(0xFF090D18);
+const kConsoleBg = Color(0xFF090D18);
 
 // ─── App ─────────────────────────────────────────────────────────────────
 class LedApp extends StatelessWidget {
@@ -45,31 +39,31 @@ class LedApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: kSeedColor,
-            brightness: Brightness.dark,
-          ),
-          textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
-          cardTheme: const CardThemeData(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(20)),
-            ),
-          ),
-          navigationBarTheme: const NavigationBarThemeData(
-            indicatorShape: StadiumBorder(),
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          ),
-          snackBarTheme: SnackBarThemeData(
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: kSeedColor,
+        brightness: Brightness.dark,
+      ),
+      textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'SpaceGrotesk'),
+      cardTheme: const CardThemeData(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(20)),
         ),
-        home: const MainShell(),
-      );
+      ),
+      navigationBarTheme: const NavigationBarThemeData(
+        indicatorShape: StadiumBorder(),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    home: const MainShell(),
+  );
 }
 
 // ─── Main Shell ───────────────────────────────────────────────────────────
@@ -82,10 +76,11 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   int _navIndex = 0;
-  int _prevIndex = 0;
 
-  late final AnimationController _slideCtrl;
-  late final CurvedAnimation     _slideCurve;
+  // Fade controller — FadeTransition has no single-frame flash unlike
+  // the previous Transform.translate approach which glitched on fast taps.
+  late final AnimationController _fadeCtrl;
+  late final Animation<double>   _fadeAnim;
 
   static const _tabs = [
     (Icons.home_rounded,      Icons.home_outlined,     'Home'),
@@ -103,40 +98,39 @@ class _MainShellState extends State<MainShell>
       NotifPermission.ensureEnabled(context);
     });
 
-    _slideCtrl = AnimationController(
+    _fadeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 180),
     );
-    _slideCurve = CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOutCubic);
-    _slideCtrl.value = 1.0;
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeIn);
+    _fadeCtrl.value = 1.0;
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _slideCtrl.dispose();
+    _fadeCtrl.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) NotifPermission.ensureEnabled(context);
+    if (state == AppLifecycleState.resumed) {
+      NotifPermission.ensureEnabled(context);
+    }
   }
 
   void _onNavTap(int i) {
     if (i == _navIndex) return;
-    setState(() {
-      _prevIndex = _navIndex;
-      _navIndex  = i;
+    // Fade out → switch → fade in
+    _fadeCtrl.reverse().then((_) {
+      if (!mounted) return;
+      setState(() => _navIndex = i);
+      _fadeCtrl.forward();
     });
-    _slideCtrl.forward(from: 0);
   }
 
-  static const List<Widget> _pages = [
-    HomeScreen(),
-    LedMenu(),
-    TweaksScreen(),
-  ];
+  static const List<Widget> _pages = [HomeScreen(), LedMenu(), TweaksScreen()];
 
   @override
   Widget build(BuildContext context) {
@@ -144,19 +138,9 @@ class _MainShellState extends State<MainShell>
 
     return Scaffold(
       backgroundColor: cs.surface,
-      body: AnimatedBuilder(
-        animation: _slideCurve,
-        builder: (ctx, child) {
-          if (!_slideCtrl.isAnimating) return child!;
-          final w          = MediaQuery.of(ctx).size.width;
-          final goingRight = _navIndex > _prevIndex;
-          final dx         = w * 0.06 * (1.0 - _slideCurve.value) * (goingRight ? 1.0 : -1.0);
-          return Transform.translate(offset: Offset(dx, 0), child: child);
-        },
-        child: IndexedStack(
-          index: _navIndex,
-          children: _pages,
-        ),
+      body: FadeTransition(
+        opacity: _fadeAnim,
+        child: IndexedStack(index: _navIndex, children: _pages),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _navIndex,

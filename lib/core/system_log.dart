@@ -10,8 +10,8 @@ import 'package:flutter/foundation.dart';
 enum SystemLogLevel { info, success, warning, error }
 
 class SystemLogEntry {
-  final DateTime       timestamp;
-  final String         message;
+  final DateTime timestamp;
+  final String message;
   final SystemLogLevel level;
 
   SystemLogEntry({
@@ -32,17 +32,17 @@ class SystemLog {
   SystemLog._();
   static final SystemLog instance = SystemLog._();
 
-  final List<SystemLogEntry>  _entries = [];
-  final ValueNotifier<int>    version  = ValueNotifier(0);
+  final List<SystemLogEntry> _entries = [];
+  final ValueNotifier<int> version = ValueNotifier(0);
+  static const int _maxEntries = 500;
 
   List<SystemLogEntry> get entries => List.unmodifiable(_entries);
 
   void log(String message, {SystemLogLevel level = SystemLogLevel.info}) {
-    _entries.add(SystemLogEntry(
-      timestamp: DateTime.now(),
-      message:   message,
-      level:     level,
-    ));
+    _entries.add(
+      SystemLogEntry(timestamp: DateTime.now(), message: message, level: level),
+    );
+    if (_entries.length > _maxEntries) _entries.removeAt(0);
     version.value++;
   }
 

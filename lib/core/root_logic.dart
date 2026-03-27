@@ -1,28 +1,47 @@
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ledsync/models/devices/device_config.dart';
 import 'package:ledsync/models/devices/lh8n_config.dart';
 
-class RootManagerInfo {
-  final String name;
-  final String iconPath;
-  RootManagerInfo(this.name, this.iconPath);
-}
-
 class RootLogic {
-  static DeviceConfig? _currentConfig;
   static bool masterEnabled = true;
-
-  // ── Cached root check — only runs `su -v` once per app session ────────────
   static bool? _cachedRooted;
 
-  static Future<DeviceConfig?> getConfig() async {
-    if (_currentConfig != null) return _currentConfig;
-    final androidInfo = await DeviceInfoPlugin().androidInfo;
-    if (androidInfo.model.contains('LH8n')) {
-      _currentConfig = LH8nConfig();
-    }
-    return _currentConfig;
+  // ── Active config — user-chosen, persisted ─────────────────────────────
+  static DeviceConfig? _currentConfig;
+
+  static final List<DeviceConfig> allConfigs = [
+    LH8nConfig(),
+    // Add future device configs here
+  ];
+
+  static const _kConfigPrefKey = 'selected_device_config';
+
+  /// Returns the active config. Loads from prefs on first call.
+  /// Defaults to LH8nConfig if nothing is saved yet — never returns null.
+  static Future<DeviceConfig> getConfig() async {
+    if (_currentConfig != null) return _currentConfig!;
+
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_kConfigPrefKey);
+
+    _currentConfig = allConfigs.firstWhere(
+      (c) => c.deviceName == saved,
+      orElse: () => LH8nConfig(),
+    );
+    return _currentConfig!;
+  }
+
+  /// Sync getter for use after getConfig() has been awaited at least once.
+  static DeviceConfig? get activeConfig => _currentConfig;
+
+  /// Set and persist the user's chosen config.
+  static Future<void> setConfig(DeviceConfig cfg) async {
+    _currentConfig = cfg;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kConfigPrefKey, cfg.deviceName);
   }
 
   static Future<bool> isRooted() async {
@@ -37,47 +56,26 @@ class RootLogic {
   }
 
   static Future<Map<String, dynamic>> getPhoneInfo() async {
-    // Run all three reads in parallel instead of serially
     final results = await Future.wait([
       DeviceInfoPlugin().androidInfo,
       Process.run('su', ['-c', 'uname -r']),
-      Process.run('getprop', ['ro.product.marketname']),
     ]);
 
-    final androidInfo = results[0] as dynamic;
+    final androidInfo = results[0] as AndroidDeviceInfo;
     final kernelResult = results[1] as ProcessResult;
-    final marketResult = results[2] as ProcessResult;
-
-    final marketName = marketResult.stdout.toString().trim();
-    final displayName = marketName.isNotEmpty ? marketName : androidInfo.model as String;
+    final cfg = await getConfig();
 
     return {
-      'model':   displayName,
+      'model': cfg.deviceName,
       'version': 'Android ${androidInfo.version.release}',
-      'kernel':  kernelResult.stdout.toString().trim(),
+      'kernel': kernelResult.stdout.toString().trim(),
     };
-  }
-
-  static Future<RootManagerInfo> detectManager() async {
-    if ((await _runSu('ls /data/adb/ksu')).exitCode == 0) {
-      return RootManagerInfo('KernelSU Next', 'assets/kernelsu_next.png');
-    }
-    if ((await _runSu('ls /data/adb/apatch')).exitCode == 0) {
-      return RootManagerInfo('APatch', 'assets/apatch_icon.png');
-    }
-    if ((await _runSu('magisk -v')).exitCode == 0) {
-      return RootManagerInfo('Magisk', 'assets/magisk.png');
-    }
-    return RootManagerInfo('Unknown', '');
   }
 
   static Future<void> initializeHardware() => ensureLedEnabled();
 
-  /// Batched into a single shell invocation — was 4 serial `su -c` calls.
   static Future<void> ensureLedEnabled() async {
     final cfg = await getConfig();
-    if (cfg == null) return;
-    // All commands joined with `;` → one Process.run instead of four
     await _runSu(
       'echo 1 > ${cfg.awPath}/hwen; '
       'echo c > ${cfg.awPath}/imax 2>/dev/null || true; '
@@ -87,24 +85,19 @@ class RootLogic {
     );
   }
 
-  /// Send hex — always ensures hardware is primed first so repeated
-  /// effect changes don't silently fail after the first write.
   static Future<void> sendRawHex(String hex) async {
     if (!masterEnabled) return;
     final cfg = await getConfig();
-    if (cfg == null) return;
-    // Re-enable hardware on every send — cheap (one shell cmd) and prevents
-    // the "only fires once" bug where LED state drifts after first write.
+    // Two su calls: first resets the controller, second writes the effect.
+    // The hardware needs the reset to fully complete before accepting the effect.
     await ensureLedEnabled();
     await _runSu("echo -n '$hex' > ${cfg.lbCmd}");
   }
 
-  /// Batched into a single shell invocation — was 3 serial `su -c` calls.
   static Future<void> turnOffAll() async {
     final cfg = await getConfig();
-    if (cfg == null) return;
     await _runSu(
-      "echo -n '00 01 00 00 00 00' > ${cfg.lbCmd}; "
+      "echo -n '${cfg.turnOffHex}' > ${cfg.lbCmd}; "
       'echo 0 > ${cfg.awPath}/brightness; '
       'echo 0 > ${cfg.awPath}/hwen',
     );
@@ -118,6 +111,11 @@ class RootLogic {
     await ensureLedEnabled();
   }
 
-  static Future<ProcessResult> _runSu(String cmd) =>
-      Process.run('su', ['-c', cmd]);
+  static Future<ProcessResult> _runSu(String cmd) async {
+    final result = await Process.run('su', ['-c', cmd]);
+    if (result.exitCode != 0) {
+      debugPrint('[RootLogic] su failed (exit ${result.exitCode}): $cmd');
+    }
+    return result;
+  }
 }

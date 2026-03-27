@@ -9,9 +9,9 @@ import 'package:flutter/foundation.dart';
 enum LedActionLevel { info, success, warning, error }
 
 class LedActionEntry {
-  final DateTime        timestamp;
-  final String          message;
-  final LedActionLevel  level;
+  final DateTime timestamp;
+  final String message;
+  final LedActionLevel level;
 
   LedActionEntry({
     required this.timestamp,
@@ -31,17 +31,17 @@ class LedActionLog {
   LedActionLog._();
   static final LedActionLog instance = LedActionLog._();
 
-  final List<LedActionEntry>  _entries = [];
-  final ValueNotifier<int>    version  = ValueNotifier(0);
+  final List<LedActionEntry> _entries = [];
+  final ValueNotifier<int> version = ValueNotifier(0);
+  static const int _maxEntries = 500;
 
   List<LedActionEntry> get entries => List.unmodifiable(_entries);
 
   void log(String message, {LedActionLevel level = LedActionLevel.info}) {
-    _entries.add(LedActionEntry(
-      timestamp: DateTime.now(),
-      message:   message,
-      level:     level,
-    ));
+    _entries.add(
+      LedActionEntry(timestamp: DateTime.now(), message: message, level: level),
+    );
+    if (_entries.length > _maxEntries) _entries.removeAt(0);
     version.value++;
   }
 

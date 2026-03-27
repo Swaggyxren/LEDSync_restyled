@@ -1,44 +1,108 @@
 package com.xiiann.ledsync
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataOutputStream
 import kotlin.concurrent.thread
-import kotlin.jvm.Volatile
 
 class NotificationLedService : NotificationListenerService() {
 
-    // Matches your LH8nConfig
-    private val LB_CMD_PATH = "/sys/led/led/tran_led_cmd"
-    private val HWEN_PATH = "/sys/class/leds/aw22xxx_led/hwen"
-    private val BRIGHT_PATH = "/sys/class/leds/aw22xxx_led/brightness"
+    // ── Hardware paths ────────────────────────────────────────────────────────
+    private val LB_CMD_PATH  = "/sys/led/led/tran_led_cmd"
+    private val HWEN_PATH    = "/sys/class/leds/aw22xxx_led/hwen"
+    private val BRIGHT_PATH  = "/sys/class/leds/aw22xxx_led/brightness"
 
-    private val PULSE_INTERVAL_MS = 1500L
-    private val COOLDOWN_MS = 1500L
+    // ── Timing ────────────────────────────────────────────────────────────────
+    private val SEQUENCE_COOLDOWN_MS = 6000L  // covers both writes + margin
+    private val DOUBLE_FIRE_DELAY_MS = 1500L  // gap between write 1 and write 2
+    private val LOOP_AUTO_STOP_MS    = 5000L  // looping pattern max on-time
 
-    @Volatile
-    private var lastTriggerTimeMillis: Long = 0L
-
-    // Tracks packages whose looping LED is currently ON.
-    // Prevents re-triggering while the pattern is already running.
+    // ── State ─────────────────────────────────────────────────────────────────
+    // Per-package last-trigger time for non-looping (one-shot × 5) patterns.
+    private val lastTriggerPerPkg = HashMap<String, Long>()
+    // Packages currently running a looping pattern — prevents re-fire.
     private val activeLoopingPkgs = mutableSetOf<String>()
 
+    // ── System services ───────────────────────────────────────────────────────
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var powerManager: PowerManager
+    private lateinit var notifManager: NotificationManager
+
+    private val CHANNEL_ID = "ledsync_service"
+    private val FG_NOTIF_ID = 101
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    override fun onCreate() {
+        super.onCreate()
+        powerManager  = getSystemService(PowerManager::class.java)
+        notifManager  = getSystemService(NotificationManager::class.java)
+        createNotificationChannel()
+    }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.d("NotifLED", "Listener CONNECTED ✅")
+        // Start foreground to prevent OEM battery managers from killing us.
+        // ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC = 0x00000001
+        startForeground(FG_NOTIF_ID, buildNotification(), 0x00000001)
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        Log.d("NotifLED", "Listener DISCONNECTED ❌")
+        Log.d("NotifLED", "Listener DISCONNECTED ❌ — requesting rebind")
+        // Ask the system to reconnect us automatically.
+        requestRebind(ComponentName(this, NotificationLedService::class.java))
     }
+
+    override fun onDestroy() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        super.onDestroy()
+    }
+
+    // ── Foreground notification ───────────────────────────────────────────────
+
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "LED Sync Service",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Keeps LED effects running in the background"
+            setShowBadge(false)
+        }
+        notifManager.createNotificationChannel(channel)
+    }
+
+    private fun buildNotification(): Notification {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pi = PendingIntent.getActivity(
+            this, 0, launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("LED Sync")
+            .setContentText("Listening for notifications")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pi)
+            .setOngoing(true)
+            .build()
+    }
+
+    // ── Root helpers ──────────────────────────────────────────────────────────
 
     private fun runSu(cmd: String): Boolean {
         return try {
@@ -56,104 +120,163 @@ class NotificationLedService : NotificationListenerService() {
         }
     }
 
-    private fun ensureEngineOn(): Boolean {
-        val ok1 = runSu("echo 1 > $HWEN_PATH")
-        val ok2 = runSu("echo 255 > $BRIGHT_PATH")
-        Log.d("NotifLED", "ensureEngineOn: hwen=$ok1 bright=$ok2")
-        return ok1 && ok2
-    }
-
-    private fun fireOnce(hex: String, tag: String): Boolean {
-        // keep quotes exactly like this so spaces stay intact
+    /**
+     * Single su call: enable hardware + reset controller + write effect hex.
+     * Previously two separate runSu calls had a timing gap that caused
+     * the effect write to be missed intermittently.
+     */
+    private fun fireEffect(hex: String, tag: String): Boolean {
+        // Step 1: reset controller (must complete before effect write)
+        runSu(
+            "echo 1 > $HWEN_PATH; " +
+            "echo c > /sys/class/leds/aw22xxx_led/imax 2>/dev/null || true; " +
+            "echo 255 > $BRIGHT_PATH; " +
+            "echo none > /sys/class/leds/aw22xxx_led/trigger 2>/dev/null || true; " +
+            "echo -n '00 00 00 00 00 00' > $LB_CMD_PATH"
+        )
+        // Step 2: write effect hex
         val ok = runSu("echo -n '$hex' > $LB_CMD_PATH")
-        Log.d("NotifLED", "$tag -> cmd=$ok hex='$hex'")
+        Log.d("NotifLED", "$tag -> ok=$ok hex='$hex'")
         return ok
     }
 
-    private fun triggerTwice(pkg: String, hex: String) {
-        Log.d("NotifLED", "Trigger x2 for: $pkg hex='$hex'")
-        lastTriggerTimeMillis = System.currentTimeMillis()
+    /** Stop command — no need to enable engine, just send the off hex. */
+    private fun fireStop(hex: String, tag: String): Boolean {
+        val ok = runSu("echo -n '$hex' > $LB_CMD_PATH")
+        Log.d("NotifLED", "$tag -> ok=$ok hex='$hex'")
+        return ok
+    }
 
-        // Do root writes off the listener thread (avoid blocking)
+    /**
+     * Flutter shared_preferences stores StringList as:
+     *   VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu!["pkg1","pkg2"]
+     * The base64 prefix + "!" must be stripped before parsing as JSONArray.
+     * getStringSet() crashes (ClassCastException), direct JSONArray parse fails
+     * without stripping — this handles both cases.
+     */
+    private fun readLoopingPkgs(prefs: android.content.SharedPreferences): Set<String> {
+        val raw = prefs.getString("flutter.notif_looping_pkgs", null)
+            ?: return emptySet()
+        return try {
+            // Strip Flutter's StringList prefix (everything up to and including '!')
+            val json = if (raw.contains('!')) raw.substringAfter('!') else raw
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { arr.getString(it) }.toSet()
+        } catch (e: Throwable) {
+            Log.e("NotifLED", "readLoopingPkgs parse failed: ${e.message}")
+            emptySet()
+        }
+    }
+
+    // ── Trigger strategies ────────────────────────────────────────────────────
+
+    /**
+     * Non-looping: 2 hardware writes with a 1.5s gap.
+     * Each write produces 2–4 natural flashes on the aw22xxx, so 2 writes
+     * gives a noticeable double-burst. Cooldown is set AFTER both writes
+     * so the 6s window correctly covers the full sequence.
+     *
+     * Looping: 1 write, then a 5s auto-stop timer. The timer is cancelled
+     * if onNotificationRemoved fires first (notification cleared early).
+     */
+    private fun triggerEffect(pkg: String, hex: String, isLooping: Boolean) {
+        Log.d("NotifLED", "Trigger [$pkg] looping=$isLooping hex='$hex'")
+
+        if (isLooping) {
+            synchronized(activeLoopingPkgs) { activeLoopingPkgs.add(pkg) }
+        }
+
+        val wl = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK, "LEDSync:trigger:$pkg"
+        )
+        wl.acquire(10_000L)
+
         thread {
-            ensureEngineOn()
-            fireOnce(hex, "FIRE #1")
+            try {
+                fireEffect(hex, "FIRE1[$pkg]")
 
-            // second fire after 1.5s gap
-            handler.postDelayed({
-                thread {
-                    ensureEngineOn()
-                    fireOnce(hex, "FIRE #2")
+                if (!isLooping) {
+                    // Write 2 after delay — set cooldown only after both writes done
+                    Thread.sleep(DOUBLE_FIRE_DELAY_MS)
+                    fireEffect(hex, "FIRE2[$pkg]")
+                    synchronized(lastTriggerPerPkg) {
+                        lastTriggerPerPkg[pkg] = System.currentTimeMillis()
+                    }
+                } else {
+                    // Auto-stop after 5 s if notification wasn't cleared yet
+                    handler.postDelayed({
+                        val stillActive = synchronized(activeLoopingPkgs) {
+                            activeLoopingPkgs.contains(pkg)
+                        }
+                        if (stillActive) {
+                            Log.d("NotifLED", "Loop auto-stop (5s) [$pkg]")
+                            synchronized(activeLoopingPkgs) { activeLoopingPkgs.remove(pkg) }
+                            val prefs = applicationContext.getSharedPreferences(
+                                "FlutterSharedPreferences", Context.MODE_PRIVATE
+                            )
+                            val off = prefs.getString("flutter.notif_turnoff_hex",
+                                "00 01 00 00 00 00") ?: "00 01 00 00 00 00"
+                            thread { fireStop(off, "AUTO_STOP[$pkg]") }
+                        }
+                    }, LOOP_AUTO_STOP_MS)
                 }
-            }, PULSE_INTERVAL_MS)
+            } finally {
+                if (wl.isHeld) wl.release()
+            }
         }
     }
 
-    // Used for looping patterns — one write is enough since the hardware
-    // keeps the pattern running until explicitly stopped.
-    private fun triggerOnce(pkg: String, hex: String) {
-        Log.d("NotifLED", "Trigger x1 (looping) for: $pkg hex='$hex'")
-        lastTriggerTimeMillis = System.currentTimeMillis()
-        synchronized(activeLoopingPkgs) { activeLoopingPkgs.add(pkg) }
-
-        thread {
-            ensureEngineOn()
-            fireOnce(hex, "FIRE_LOOP[$pkg]")
-        }
-    }
+    // ── Notification callbacks ─────────────────────────────────────────────────
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         try {
             val pkg = sbn.packageName ?: return
 
             val prefs = applicationContext.getSharedPreferences(
-                "FlutterSharedPreferences",
-                Context.MODE_PRIVATE
+                "FlutterSharedPreferences", Context.MODE_PRIVATE
             )
 
             val raw = prefs.getString("flutter.notif_hex_map", null)
             if (raw.isNullOrBlank()) {
-                Log.d("NotifLED", "flutter.notif_hex_map is EMPTY/NULL (open App LED Sync -> set mapping -> Save)")
+                Log.d("NotifLED", "notif_hex_map empty — set mapping in App LED Sync and Save")
                 return
             }
 
             val hex = try {
-                val obj = JSONObject(raw)
-                obj.optString(pkg, "")
+                JSONObject(raw).optString(pkg, "")
             } catch (e: Throwable) {
                 Log.e("NotifLED", "JSON parse failed", e)
                 ""
             }
 
             if (hex.isBlank()) {
-                Log.d("NotifLED", "No mapping for package: $pkg")
+                Log.d("NotifLED", "No mapping for $pkg")
                 return
             }
 
-            // Check if this package uses a looping pattern.
-            val loopingPkgs = prefs.getStringSet("flutter.notif_looping_pkgs", emptySet())
-                ?: emptySet()
+            val loopingPkgs = readLoopingPkgs(prefs)
             val isLooping = loopingPkgs.contains(pkg)
 
             if (isLooping) {
-                // Looping pattern: only fire if not already running for this package.
-                // This ensures the LED triggers exactly once per notification session —
-                // it keeps running until the notification is cleared, no re-fires.
-                val alreadyActive = synchronized(activeLoopingPkgs) { activeLoopingPkgs.contains(pkg) }
+                // Already running — don't re-fire while LED is active.
+                val alreadyActive = synchronized(activeLoopingPkgs) {
+                    activeLoopingPkgs.contains(pkg)
+                }
                 if (alreadyActive) {
-                    Log.d("NotifLED", "Looping already active for $pkg, skip re-trigger")
+                    Log.d("NotifLED", "Loop already active for $pkg, skip")
                     return
                 }
-                triggerOnce(pkg, hex)
             } else {
-                // One-shot pattern: use the existing cooldown + double-fire logic.
+                // Cooldown — don't re-fire while a recent trigger is still fresh.
                 val now = System.currentTimeMillis()
-                if (now - lastTriggerTimeMillis < COOLDOWN_MS) {
-                    Log.d("NotifLED", "Cooldown: skipping $pkg")
+                val last = synchronized(lastTriggerPerPkg) { lastTriggerPerPkg[pkg] ?: 0L }
+                if (now - last < SEQUENCE_COOLDOWN_MS) {
+                    Log.d("NotifLED", "Cooldown active for $pkg, skip")
                     return
                 }
-                triggerTwice(pkg, hex)
             }
+
+            triggerEffect(pkg, hex, isLooping)
 
         } catch (e: Throwable) {
             Log.e("NotifLED", "onNotificationPosted crashed", e)
@@ -165,35 +288,36 @@ class NotificationLedService : NotificationListenerService() {
             val pkg = sbn.packageName ?: return
 
             val prefs = applicationContext.getSharedPreferences(
-                "FlutterSharedPreferences",
-                Context.MODE_PRIVATE
+                "FlutterSharedPreferences", Context.MODE_PRIVATE
             )
 
-            // Only act if this package is assigned a looping pattern.
-            // Non-looping patterns (Halo, Lightning, Pureness, etc.) self-terminate
-            // after their animation cycle — no cleanup needed.
-            val loopingPkgs = prefs.getStringSet("flutter.notif_looping_pkgs", emptySet())
-                ?: emptySet()
-            if (!loopingPkgs.contains(pkg)) {
-                Log.d("NotifLED", "onRemoved: $pkg not looping, skip")
-                return
-            }
+            // Only looping patterns need an explicit stop.
+            val loopingPkgs = readLoopingPkgs(prefs)
+            if (!loopingPkgs.contains(pkg)) return
 
-            // If the same app still has other active notifications, keep the LED running.
+            // Keep LED running if the same app still has other active notifications.
             val stillActive = activeNotifications?.any { it.packageName == pkg } ?: false
             if (stillActive) {
                 Log.d("NotifLED", "onRemoved: $pkg still has active notifs, keep LED")
                 return
             }
 
-            // Last notification from this package is gone — stop the looping LED.
             val turnOffHex = prefs.getString("flutter.notif_turnoff_hex", "00 01 00 00 00 00")
                 ?: "00 01 00 00 00 00"
 
-            Log.d("NotifLED", "onRemoved: stopping looping LED for $pkg hex='$turnOffHex'")
+            Log.d("NotifLED", "onRemoved: stopping loop for $pkg")
             synchronized(activeLoopingPkgs) { activeLoopingPkgs.remove(pkg) }
+
+            val wl = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "LEDSync:stop:$pkg"
+            )
+            wl.acquire(5_000L)
             thread {
-                fireOnce(turnOffHex, "STOP_LOOP[$pkg]")
+                try {
+                    fireStop(turnOffHex, "STOP_LOOP[$pkg]")
+                } finally {
+                    if (wl.isHeld) wl.release()
+                }
             }
 
         } catch (e: Throwable) {
