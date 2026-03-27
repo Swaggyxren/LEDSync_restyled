@@ -30,12 +30,4 @@ LEDSync is a small Android + Flutter project that syncs your phone’s LED effec
 - Notification access enabled:
   - Settings → Special access → **Notification access** → enable for LEDSync
 
----
 
-## Setup / Install (APK)
-
-### Option A: Build Release APK
-```bash
-flutter clean
-flutter pub get
-flutter build apk --release
