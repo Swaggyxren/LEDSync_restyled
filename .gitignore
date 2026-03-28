@@ -25,3 +25,6 @@ android/app/release/
 # Misc
 *.log
 .DS_Store
+
+# Kilo
+.kilo/
