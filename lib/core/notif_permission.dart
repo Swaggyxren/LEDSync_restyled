@@ -9,6 +9,10 @@ class NotifPermission {
   // Session flag — prevents re-showing dialogs if user dismissed in this session
   static bool _sessionDismissed = false;
   static Timer? _waitTimer;
+  static bool _dialogActive = false;
+
+  /// Whether a NotifPermission dialog is currently displayed on screen.
+  static bool get isDialogActive => _dialogActive;
 
   static Future<bool> isEnabled() async {
     try {
@@ -46,6 +50,7 @@ class NotifPermission {
     // Step 1: POST_NOTIFICATIONS (Android 13+)
     final hasPost = await hasPostNotifications();
     if (!hasPost && context.mounted) {
+      _dialogActive = true;
       await _showDialog(
         context,
         _PostNotifDialog(
@@ -59,6 +64,7 @@ class NotifPermission {
           },
         ),
       );
+      _dialogActive = false;
     }
 
     if (_sessionDismissed) return;
@@ -67,6 +73,7 @@ class NotifPermission {
     final ok = await isEnabled();
     if (ok || !context.mounted) return;
 
+    _dialogActive = true;
     await _showDialog(
       context,
       _PermissionDialog(
@@ -82,6 +89,7 @@ class NotifPermission {
         },
       ),
     );
+    _dialogActive = false;
   }
 
   static Future<void> _showDialog(BuildContext context, Widget child) =>
@@ -107,6 +115,7 @@ class NotifPermission {
   static Future<void> _waitUntilEnabled(BuildContext context) async {
     if (!context.mounted) return;
     _waitTimer?.cancel();
+    _dialogActive = true;
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
@@ -121,10 +130,12 @@ class NotifPermission {
         t.cancel();
         _waitTimer = null;
         if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+        _dialogActive = false;
       } else if (elapsed >= 60000) {
         t.cancel();
         _waitTimer = null;
         if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+        _dialogActive = false;
       }
     });
   }

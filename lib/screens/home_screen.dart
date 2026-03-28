@@ -493,13 +493,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final shown = prefs.getBool(_kTooltipShown) ?? false;
     if (shown || !mounted) return;
 
-    // Wait until notification listener is granted before showing the tooltip
-    // so it doesn't appear under/before the permission dialogs.
+    // Wait until notification listener is granted AND no permission dialog is on screen.
     final completer = Completer<void>();
     int elapsed = 0;
     _tooltipTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
       elapsed += 2000;
-      if (!mounted || await NotifPermission.isEnabled() || elapsed >= 30000) {
+      if (!mounted) {
+        t.cancel();
+        _tooltipTimer = null;
+        if (!completer.isCompleted) completer.complete();
+        return;
+      }
+      final enabled = await NotifPermission.isEnabled();
+      final dialogActive = NotifPermission.isDialogActive;
+      if (enabled && !dialogActive) {
+        t.cancel();
+        _tooltipTimer = null;
+        if (!completer.isCompleted) completer.complete();
+      } else if (elapsed >= 30000) {
         t.cancel();
         _tooltipTimer = null;
         if (!completer.isCompleted) completer.complete();
@@ -508,6 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await completer.future;
     if (!mounted) return;
     if (!await NotifPermission.isEnabled()) return; // never granted — skip
+    if (NotifPermission.isDialogActive) return; // dialog still showing — skip
 
     await prefs.setBool(_kTooltipShown, true);
     await Future.delayed(const Duration(milliseconds: 600));
