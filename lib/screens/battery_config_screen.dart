@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +33,7 @@ class _BatteryConfigScreenState extends State<BatteryConfigScreen> {
   int _battLevel = 0;
   bool _battCharging = false;
   final _battery = Battery();
+  StreamSubscription<BatteryState>? _battSub;
 
   @override
   void initState() {
@@ -38,6 +41,13 @@ class _BatteryConfigScreenState extends State<BatteryConfigScreen> {
     _cfgFuture = RootLogic.getConfig();
     _loadPrefs();
     _loadBattery();
+    _battSub = _battery.onBatteryStateChanged.listen((_) => _loadBattery());
+  }
+
+  @override
+  void dispose() {
+    _battSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPrefs() async {

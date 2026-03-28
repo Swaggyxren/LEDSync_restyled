@@ -80,12 +80,12 @@ class _MainShellState extends State<MainShell>
   // Fade controller — FadeTransition has no single-frame flash unlike
   // the previous Transform.translate approach which glitched on fast taps.
   late final AnimationController _fadeCtrl;
-  late final Animation<double>   _fadeAnim;
+  late final Animation<double> _fadeAnim;
 
   static const _tabs = [
-    (Icons.home_rounded,      Icons.home_outlined,     'Home'),
+    (Icons.home_rounded, Icons.home_outlined, 'Home'),
     (Icons.lightbulb_rounded, Icons.lightbulb_outline, 'LEDs'),
-    (Icons.tune_rounded,      Icons.tune,              'Tweaks'),
+    (Icons.tune_rounded, Icons.tune, 'Tweaks'),
   ];
 
   @override
@@ -117,6 +117,7 @@ class _MainShellState extends State<MainShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       NotifPermission.ensureEnabled(context);
+      BatteryListener.refreshNow();
     }
   }
 
@@ -149,11 +150,13 @@ class _MainShellState extends State<MainShell>
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         destinations: _tabs
-            .map((t) => NavigationDestination(
-                  icon: Icon(t.$2),
-                  selectedIcon: Icon(t.$1),
-                  label: t.$3,
-                ))
+            .map(
+              (t) => NavigationDestination(
+                icon: Icon(t.$2),
+                selectedIcon: Icon(t.$1),
+                label: t.$3,
+              ),
+            )
             .toList(),
       ),
     );
